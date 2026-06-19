@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fullwave2-ultra"
+version = "0.1.0.dev0"
+description = "Optimized 2D batched + 3D Aexp CUDA fullwave solvers + a byte-validated Python pipeline"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Gianmarco Pinton" }]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = ["numpy>=1.25", "scipy>=1.10"]   # importable library: numpy + scipy only
+
+[project.optional-dependencies]
+beamform = ["mach-beamform>=0.1.1", "cupy-cuda12x>=12.0"]   # MACH GPU FSA beamformer (call-time only)
+viz = ["matplotlib>=3.6"]                                   # figure output (lazy-imported)
+dev = ["ruff", "pytest", "matplotlib>=3.6"]
+
+[project.scripts]
+fw2u-cuda-info = "fullwave2_ultra.cuda_utils:_cli"   # report the host GPU(s) + driver CUDA version
+fw2u-preflight = "fullwave2_ultra.solver:_cli"       # check a solver binary can run on this host's GPU
+
+[tool.setuptools.packages.find]
+include = ["fullwave2_ultra*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Gate on real bugs (pyflakes: undefined names, unused imports/vars) + syntax errors.
+# Skip cosmetic E1/E2/E7 -- the code intentionally uses compact `;` one-liners.
+select = ["F", "E9"]
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: end-to-end / data- or GPU-dependent tests (deselect with '-m \"not slow\"')",
+]

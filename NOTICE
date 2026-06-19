@@ -1,0 +1,37 @@
+fullwave2-ultra
+===============
+Copyright 2026 Gianmarco Pinton
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Provenance and third-party attributions.
+
+1. fullwave lineage
+   The Python pipeline (io_dat, geom, medium, sim) and the raw .dat I/O
+   contract derive from G. Pinton's fullwave solver lineage. The optimized CUDA
+   solver EXECUTABLES are NOT part of this package -- they are built and distributed
+   separately and fetched at runtime (see fullwave2_ultra.solver.resolve_binary).
+   This Python pipeline is licensed under Apache-2.0 (see LICENSE). The separately
+   distributed solver executables are NOT covered by Apache-2.0; they are licensed
+   under PolyForm Noncommercial 1.0.0 (see LICENSE-binaries.txt) -- free for
+   academic/noncommercial use, commercial use requires a separate license.
+
+2. MACH beamformer (optional dependency, not vendored)
+   FSA beamforming uses MACH (mach-beamform), (c) 2025 Forest Neurotech, The Clear BSD
+   License, github.com/Forest-Neurotech/mach. Installed via pip (the [beamform] extra);
+   not redistributed here. Required only at call time by beamform.beamform_fsa.
+
+3. Datasets (NOT redistributed)
+   The LLZ abdominal FSA dataset, the microCT CarteGianmarco20um volume, and any
+   Verasonics data are third-party, read-only, of unknown redistribution rights. They
+   are NOT committed; examples regenerate synthetic fixtures on demand. Only the tiny
+   synthetic 2D fixture inputs under examples/tiny_nsims4/ are tracked (golden parity
+   reference); no measured data is included.
+
+4. CUDA device/driver introspection (fullwave2_ultra/cuda_utils.py)
+   The ctypes-based libcuda introspection (device specs, compute capability, driver
+   version) is adapted from fullwave25 (github.com/pinton-lab/fullwave25,
+   fullwave/solver/cuda_utils.py), itself derived from a public gist by f0k
+   (gist.github.com/f0k/63a664160d016a491b2cbea15913d549, the
+   permalink_comment_id=5043495 update). The solver preflight + binary-resolution
+   (fullwave2_ultra/solver.py) follow the same project's binary_manager/ensure_binary
+   pattern.

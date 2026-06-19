@@ -1,0 +1,53 @@
+# --- scrubbed private content — never re-add ---
+# The numerical-method module and the MATLAB reference helpers were removed from
+# this public repo; these patterns keep them from being re-committed.
+*.m
+matlab/
+fullwave2_ultra/stencil.py
+
+# --- defense-in-depth: private content must NEVER live in this public repo ---
+# (the CUDA solver source + binaries are private; binaries are fetched at runtime)
+*.cu
+src/
+bin/
+bench_*
+docker/
+docs/deployment.md
+CMakeLists.txt
+
+# build artifacts
+/build/
+/dist/
+/dist-*/
+*.o
+*.egg-info/
+
+# raw simulation data / outputs (never commit datasets)
+*.dat
+*.mat
+
+# figures / outputs
+*.png
+*.pdf
+*.fig
+validation/figures/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# scratch run dirs
+runs/
+cache/
+results/
+
+# --- force-track the tiny synthetic 2D fixture INPUTS (golden parity reference) ---
+# `*.dat` above ignores .dat everywhere; these negations re-include the committed
+# 2D fixture inputs (the parent dir is not itself ignored, so the negation applies):
+!examples/tiny_nsims4/
+!examples/tiny_nsims4/*.dat
+# ... but NEVER the regenerated solver outputs:
+examples/tiny_nsims4/genout*.dat
