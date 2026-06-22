@@ -22,9 +22,10 @@ fi
 found=$(printf '%s\n' "$files" | grep -E '\.cu$' || true)
 [ -n "$found" ] && say "CUDA source ($scope):"$'\n'"$found"
 
-# 2. compiled solver binaries
-found=$(printf '%s\n' "$files" | grep -E '(^|/)bench_[0-9a-z_]+$' || true)
-[ -n "$found" ] && say "solver binary ($scope):"$'\n'"$found"
+# 2. compiled solver binaries OUTSIDE bin/ (the bin/ binaries are shipped on purpose;
+#    a bench_* anywhere else in the tree is a mistake)
+found=$(printf '%s\n' "$files" | grep -E '(^|/)bench_[0-9a-z_]+$' | grep -vE '^bin/' || true)
+[ -n "$found" ] && say "solver binary outside bin/ ($scope):"$'\n'"$found"
 
 # 3. private artifacts / build tooling that must never be published
 found=$(printf '%s\n' "$files" | grep -E '(^|/)(src/|docker/|docs/deployment\.md|docs/gotchas\.md|CMakeLists\.txt)' || true)

@@ -6,20 +6,28 @@ matlab/
 fullwave2_ultra/stencil.py
 
 # --- defense-in-depth: private content must NEVER live in this public repo ---
-# (the CUDA solver source + binaries are private; binaries are fetched at runtime)
-# This is a pure-Python package: no C/CUDA sources or headers belong here. The
-# in-binary DRP stencil header (drp_stencil.h) is private -- block all of them.
+# (the CUDA solver SOURCE is private; compiled binaries ship intentionally in bin/,
+# see the negation block below.) This is a pure-Python package: no C/CUDA sources or
+# headers belong here. The in-binary DRP stencil header (drp_stencil.h) is private.
 *.cu
 *.cuh
 *.h
 *.hpp
 *.so
 src/
-bin/
+bin/*
 bench_*
 docker/
 docs/deployment.md
 CMakeLists.txt
+
+# --- intentionally-committed prebuilt solver executables (shipped in bin/) ---
+# The bench_* binaries ARE the distributable engine (PolyForm Noncommercial); only the
+# .cu source stays private. Re-included despite bin/* and bench_* above so a clone has
+# them directly. Binaries remain blocked everywhere else in the tree.
+!bin/bench_*
+!bin/SHA256SUMS
+!bin/MANIFEST.txt
 
 # build artifacts
 /build/

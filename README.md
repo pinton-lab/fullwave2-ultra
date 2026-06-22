@@ -5,10 +5,9 @@ Python pipeline for assembling fullwave solver inputs.
 
 > **Status:** v0.1, pre-release. The Python package is here under the
 > **Apache-2.0** license (see `LICENSE`) — use it freely, including commercially.
-> The optimized CUDA solver **executables are distributed separately** as GitHub Release
-> assets (see *Running the solver* below) under a **noncommercial** license
-> (`LICENSE-binaries.txt`) — commercial use of the executables needs a separate license.
-> Their CUDA source is **not** published.
+> The optimized CUDA solver **executables ship prebuilt in `bin/`** (see *Running the
+> solver* below) under a **noncommercial** license (`LICENSE-binaries.txt`) — commercial
+> use of the executables needs a separate license. Their CUDA source is **not** published.
 
 ## What's here
 - **`fullwave2_ultra/`** — the importable package (pure `numpy`/`scipy`; imports
@@ -37,30 +36,30 @@ pip install -e .[dev]            # + ruff, pytest
 Every module imports without a GPU; `beamform.beamform_fsa` needs MACH+cupy only
 at call time.
 
-## Running the solver (executables are distributed separately)
-The compiled CUDA solver executables (`bench_2d_batch`, `bench_3d_opt`, …) are **not**
-in the source tree — their CUDA source is closed. They are published as **GitHub
-Release assets** on this repo under the **PolyForm Noncommercial 1.0.0** license
+## Running the solver
+The compiled CUDA solver executables (`bench_2d_batch`, `bench_3d_opt`, …) ship
+**prebuilt in `bin/`** in this repo, under the **PolyForm Noncommercial 1.0.0** license
 (`LICENSE-binaries.txt`): free for academic/noncommercial use, but **commercial use
-requires a separate license** (contact the Pinton Lab). Download them from the
-[Releases](https://github.com/pinton-lab/fullwave2-ultra/releases) page and place them
-on `PATH`/in a `bin/` dir, or let the package fetch them for you:
+requires a separate license** (contact the Pinton Lab). Their CUDA source is not
+published. On a clone they're found automatically — no download, no env vars:
 
 ```bash
-fw2u-cuda-info                    # report host GPU(s) + driver CUDA version
-fw2u-preflight /path/to/bench_2d_batch   # is this GPU/driver covered by the binary?
-
-# point the resolver at the release assets:
-export FW2U_BINARY_BASEURL=https://github.com/pinton-lab/fullwave2-ultra/releases/download
-export FW2U_BINARY_TAG=<release-tag>   # e.g. bin-v0.1.0
-export FW2U_BINARY_DOWNLOAD=1          # opt in to fetching
+fw2u-cuda-info                       # report host GPU(s) + driver CUDA version
+fw2u-preflight bin/bench_2d_batch    # is this GPU/driver covered by the binary?
 python -c "from fullwave2_ultra import solver; solver.run('<rundir>', name='bench_2d_batch')"
 ```
-`solver.resolve_binary()` searches a local `bin/`/cache first, then (when fetching is
-enabled) downloads `<FW2U_BINARY_BASEURL>/<tag>/<name>` — i.e. the release asset
-`https://github.com/pinton-lab/fullwave2-ultra/releases/download/<tag>/<name>`. Verify
-downloads against the release's `SHA256SUMS`. Build a run dir of `.dat` with
-`fullwave2_ultra.sim` (see `docs/io_contract.md`).
+`solver.resolve_binary()` searches `bin/` first. Verify the binaries against
+`bin/SHA256SUMS` (`cd bin && sha256sum -c SHA256SUMS`); build provenance is in
+`bin/MANIFEST.txt`.
+
+If you instead install the package as a wheel (without this repo's `bin/`), point the
+resolver at a hosted copy — it fetches `<FW2U_BINARY_BASEURL>/<tag>/<name>`:
+```bash
+export FW2U_BINARY_BASEURL=https://<host>/<path>
+export FW2U_BINARY_TAG=<tag>
+export FW2U_BINARY_DOWNLOAD=1
+```
+Build a run dir of `.dat` with `fullwave2_ultra.sim` (see `docs/io_contract.md`).
 
 ## Tests
 ```bash
