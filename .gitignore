@@ -7,7 +7,13 @@ fullwave2_ultra/stencil.py
 
 # --- defense-in-depth: private content must NEVER live in this public repo ---
 # (the CUDA solver source + binaries are private; binaries are fetched at runtime)
+# This is a pure-Python package: no C/CUDA sources or headers belong here. The
+# in-binary DRP stencil header (drp_stencil.h) is private -- block all of them.
 *.cu
+*.cuh
+*.h
+*.hpp
+*.so
 src/
 bin/
 bench_*
@@ -51,3 +57,9 @@ results/
 !examples/tiny_nsims4/*.dat
 # ... but NEVER the regenerated solver outputs:
 examples/tiny_nsims4/genout*.dat
+# ... nor the solver-computed coefficient inputs (the binary derives these from c;
+# re-ignored so the broad negation above can never re-track the scrubbed stencil data):
+examples/tiny_nsims4/d.dat
+examples/tiny_nsims4/dmap.dat
+examples/tiny_nsims4/dcmap.dat
+examples/tiny_nsims4/ndmap.dat

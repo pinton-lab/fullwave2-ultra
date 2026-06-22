@@ -59,16 +59,21 @@ found=$(printf '%s\n' "$files" | grep -E '(^|/)stencil[^/]*\.py$' || true)
 while IFS= read -r f; do
   [ -n "$f" ] && [ -f "$f" ] || continue
   case "$f" in
-    *.py|*.md)
+    *.py|*.md|*.h|*.hpp|*.cuh|*.cu)
       if grep -iEq 'drp_d|drp_dmap|dcmap_from_c|tan.?coef|tan.?huang' "$f" 2>/dev/null; then
         say "coefficient leak in content ($scope): $f"
       fi ;;
   esac
 done <<< "$files"
 
+# 10. C/CUDA headers (pure-Python package; the private drp_stencil.h and any
+#     solver headers must never be published here)
+found=$(printf '%s\n' "$files" | grep -E '\.(h|hpp|cuh)$' || true)
+[ -n "$found" ] && say "C/CUDA header ($scope):"$'\n'"$found"
+
 if [ "$fail" -eq 0 ]; then
   echo "OK ($scope): nothing private would be committed/published"
-  echo "  (no .cu / bench_* / >50MiB / src / docker / deployment / gotchas / private remote;"
+  echo "  (no .cu / .cuh / .h / bench_* / >50MiB / src / docker / deployment / gotchas / private remote;"
   echo "   no .m / matlab/ / stencil*.py / scrubbed-coefficient content)."
 else
   echo "FAILED leak-check -- the above is tracked/staged and would be published."

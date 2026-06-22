@@ -30,14 +30,11 @@ attenuates -- `aexp <= 1`).
 `write_map_3d(path, V(nX,nY,nZ))` / `read_map_3d(path, nX, nY, nZ)`.
 
 ## Solver coefficient inputs
-The solver binary computes its own internal finite-difference coefficient inputs;
-the Python pipeline does not produce them. The only coefficient file the Python
-side touches is the per-cell zone-index map:
-- `dcmap.dat` — per-cell zone index int32, must be in `[0, ndmap-1]`.
-  **2D:** `nX*nY` int32. **(3D):** `nX*nY*nZ` int32 (same C-order as the maps).
-
-`io_dat.write_dcmap(path, dc, ndmap)` clamps a zone-index map to `[0, ndmap-1]`
-(shape-agnostic, 2D or 3D).
+The solver binary computes **all** of its internal finite-difference coefficient
+inputs at startup, from the sound-speed map (`c.dat`) plus `dT`/`dX`/`c0`. The
+Python pipeline does **not** produce or ship any of them: a run directory built
+by `fullwave2_ultra.sim` holds the medium maps, coords, source, and scalars, and
+the solver derives the rest itself.
 
 ## Coords — int32, 0-based, "all-i then all-j (then all-k)"
 - **2D:** `[all i ; all j]`. `icc.dat` (`ncoords*2`), `icczero.dat` (`ncoordszero*2`),
