@@ -8,9 +8,9 @@ Provenance and third-party attributions.
 1. fullwave lineage
    The Python pipeline (io_dat, geom, medium, sim) and the raw .dat I/O
    contract derive from G. Pinton's fullwave solver lineage. The optimized CUDA
-   solver EXECUTABLES are NOT part of this package -- they are built and distributed
-   separately and fetched at runtime (see fullwave2_ultra.solver.resolve_binary).
-   This Python pipeline is licensed under Apache-2.0 (see LICENSE). The separately
-   distributed solver executables are NOT covered by Apache-2.0; they are licensed
+   solver EXECUTABLES ship prebuilt in bin/ (their CUDA source is not published; see
+   fullwave2_ultra.solver.resolve_binary). This Python pipeline is licensed under
+   Apache-2.0 (see LICENSE). The solver executables are NOT covered by Apache-2.0;
+   they are licensed
    under PolyForm Noncommercial 1.0.0 (see LICENSE-binaries.txt) -- free for
    academic/noncommercial use, commercial use requires a separate license.

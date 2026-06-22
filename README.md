@@ -74,9 +74,8 @@ enable them).
 Dual-licensed by component:
 - **Python package** (this repo) — **Apache-2.0** (`LICENSE`): use, modify, and
   redistribute freely, including commercially, subject to its terms.
-- **Solver executables** (Release assets) — **PolyForm Noncommercial 1.0.0**
+- **Solver executables** (prebuilt in `bin/`) — **PolyForm Noncommercial 1.0.0**
   (`LICENSE-binaries.txt`): free for academic/noncommercial use; commercial use
   requires a separate commercial license. Their CUDA source is not published.
 
-See `NOTICE` for attributions (fullwave lineage; MACH = Clear BSD; `cuda_utils`
-adapted from fullwave25; no datasets redistributed).
+See `NOTICE` for provenance (the fullwave solver lineage).
