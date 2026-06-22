@@ -1,9 +1,7 @@
 # fullwave2-ultra
 
-Reusable **fullwave / ultrasound simulation utilities**: a clean, byte-validated
-Python pipeline for assembling fullwave solver inputs, a medium/scatterer toolkit,
-MACH FSA beamforming, and GPU/driver preflight. Distilled from the LLZ abdominal
-FSA work.
+Reusable **fullwave / ultrasound simulation utilities**: a validated
+Python pipeline for assembling fullwave solver inputs.
 
 > **Status:** v0.1, pre-release. The Python package is here under the
 > **Apache-2.0** license (see `LICENSE`) — use it freely, including commercially.
