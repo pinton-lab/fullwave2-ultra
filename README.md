@@ -52,6 +52,13 @@ python -c "from fullwave2_ultra import solver; solver.run('<rundir>', name='benc
 `bin/SHA256SUMS` (`cd bin && sha256sum -c SHA256SUMS`); build provenance is in
 `bin/MANIFEST.txt`.
 
+### `bench_*_m6` variants
+
+`bench_2d_batch_m6`, `bench_2d_aexp_m6`, `bench_3d_opt_m6`, `bench_3d_m6`: alternate
+solver builds, same run-dir I/O contract. Outputs are not byte-comparable with the
+default `bench_*` set — pick one set per study. Usage is identical, e.g.
+`solver.run('<rundir>', name='bench_3d_opt_m6')`.
+
 If you instead install the package as a wheel (without this repo's `bin/`), point the
 resolver at a hosted copy — it fetches `<FW2U_BINARY_BASEURL>/<tag>/<name>`:
 ```bash

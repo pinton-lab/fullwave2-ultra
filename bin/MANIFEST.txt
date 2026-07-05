@@ -1,5 +1,5 @@
 # fullwave2-ultra solver binaries
-built : 2026-07-04T16:40:21Z  on  Linux 6.8.0-124-generic x86_64
+built : 2026-07-05T06:13:39Z  on  Linux 6.8.0-124-generic x86_64
 nvcc  : Cuda compilation tools, release 12.3, V12.3.107
 gcc   : gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
 arches: SMS="60 61 70 75 80 86 89 90" + PTX compute_90
@@ -10,12 +10,22 @@ runtime: NVIDIA driver >= R525 (>= R545 recommended); see docs/deployment.md
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
   ldd  : libc.so.6 libm.so.6 
+== bench_2d_aexp_m6  (3.3M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
 == bench_2d_batch  (3.4M) ==
   SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
   ldd  : libc.so.6 libm.so.6 
 == bench_2d_batch_b64  (3.4M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
+== bench_2d_batch_m6  (3.3M) ==
   SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
@@ -35,12 +45,22 @@ runtime: NVIDIA driver >= R525 (>= R545 recommended); see docs/deployment.md
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
   ldd  : libc.so.6 libm.so.6 
-== bench_3d_opt  (4.2M) ==
+== bench_3d_m6  (2.3M) ==
   SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
   ldd  : libc.so.6 libm.so.6 
-== bench_3d_opt6  (4.2M) ==
+== bench_3d_opt  (4.0M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
+== bench_3d_opt6  (4.0M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
+== bench_3d_opt_m6  (3.9M) ==
   SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
