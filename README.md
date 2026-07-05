@@ -52,6 +52,16 @@ python -c "from fullwave2_ultra import solver; solver.run('<rundir>', name='benc
 `bin/SHA256SUMS` (`cd bin && sha256sum -c SHA256SUMS`); build provenance is in
 `bin/MANIFEST.txt`.
 
+### 3D accuracy correction (2026-07)
+
+The 3D solvers (`bench_3d`, `bench_3d_opt`, and their `_m6` variants) received an
+accuracy correction to their internal numerical sound-speed calibration, removing a
+small bulk phase-velocity error (up to ~0.4% in water-speed media, ~1.7% in
+high-sound-speed media such as bone) present in earlier releases. **3D outputs
+therefore differ slightly from previous binaries** (arrival times and refraction at
+high-contrast interfaces are more accurate); rerun 3D studies where absolute timing
+matters. The **2D solvers are unchanged** (byte-identical outputs).
+
 ### `bench_*_m6` variants
 
 `bench_2d_batch_m6`, `bench_2d_aexp_m6`, `bench_3d_opt_m6`, `bench_3d_m6`: alternate
