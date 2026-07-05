@@ -62,6 +62,15 @@ therefore differ slightly from previous binaries** (arrival times and refraction
 high-contrast interfaces are more accurate); rerun 3D studies where absolute timing
 matters. The **2D solvers are unchanged** (byte-identical outputs).
 
+### `_opt6` accuracy fix (2026-07)
+
+The reduced-precision `bench_*_opt6` variants previously under-attenuated weakly
+absorbing media (an fp16 rounding issue in the stored absorption term: weak
+per-step attenuation rounded to zero, giving up to several dB of excess amplitude
+per slab transit). Fixed: `_opt6` outputs change in attenuating media and now track
+the full-precision solvers to within ~0.01 dB. All other solvers are unchanged
+(byte-identical outputs).
+
 ### `bench_*_m6` variants
 
 `bench_2d_batch_m6`, `bench_2d_aexp_m6`, `bench_3d_opt_m6`, `bench_3d_m6`: alternate

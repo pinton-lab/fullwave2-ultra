@@ -1,5 +1,5 @@
 # fullwave2-ultra solver binaries
-built : 2026-07-05T17:42:34Z  on  Linux 6.8.0-124-generic x86_64
+built : 2026-07-05T18:10:48Z  on  Linux 6.8.0-124-generic x86_64
 nvcc  : Cuda compilation tools, release 12.3, V12.3.107
 gcc   : gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
 arches: SMS="60 61 70 75 80 86 89 90" + PTX compute_90
