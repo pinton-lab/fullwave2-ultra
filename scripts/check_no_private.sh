@@ -72,10 +72,32 @@ done <<< "$files"
 found=$(printf '%s\n' "$files" | grep -E '\.(h|hpp|cuh)$' || true)
 [ -n "$found" ] && say "C/CUDA header ($scope):"$'\n'"$found"
 
+# 11. EMBARGOED SOURCE (PML/absorbing-boundary + differentiability + attenuation
+#     calibration). The embargo covers SOURCE, not the shipped bin/ binaries
+#     (maintainer decision 2026-07): none of the private-side modules, the
+#     validation/optimizer scripts, their tests, or any manuscript material may
+#     be (re-)added until the corresponding papers post.
+found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/(absorb|diff|stretch)_[^/]*|tests/test_(diff|adjoint|stretch|attenuation|fatt)[^/]*|tests/test_batch_eq_solo_fatt\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
+[ -n "$found" ] && say "embargoed source ($scope):"$'\n'"$found"
+
+# 12. docs/README content leaking the embargoed feature CONTRACTS (a doc copied
+#     from the private tree carries the USE_STRETCH/stretch.dat and
+#     USE_FATT/fatt_coefs.dat sections; scrub them before publishing)
+while IFS= read -r f; do
+  [ -n "$f" ] && [ -f "$f" ] || continue
+  case "$f" in
+    docs/*|README.md)
+      if grep -Eq 'USE_STRETCH|stretch\.dat|write_stretch_rundir|USE_FATT|fatt_coefs|simulate3d\(|_cpml_profiles' "$f" 2>/dev/null; then
+        say "embargoed feature contract in docs ($scope): $f"
+      fi ;;
+  esac
+done <<< "$files"
+
 if [ "$fail" -eq 0 ]; then
   echo "OK ($scope): nothing private would be committed/published"
   echo "  (no .cu / .cuh / .h / bench_* / >50MiB / src / docker / deployment / gotchas / private remote;"
-  echo "   no .m / matlab/ / stencil*.py / scrubbed-coefficient content)."
+  echo "   no .m / matlab/ / stencil*.py / scrubbed-coefficient content;"
+  echo "   no embargoed diff/adjoint/boundaries/attenuation source, manuscripts, or feature contracts)."
 else
   echo "FAILED leak-check -- the above is tracked/staged and would be published."
   echo "  Unstage/remove it (local git-ignored copies are fine) before commit/push."
