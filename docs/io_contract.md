@@ -52,6 +52,23 @@ the solver derives the rest itself.
 - **(3D):** `ncoords*nTic`, **coord-major** then time (single sim — the 3D solver has no
   batch axis): `value(coord m, time n)` at `m*nTic + n`.
 
+## Additive sources — `icc_add.dat` / `icmat_add.dat` (optional, 2D)
+The `icc`/`icmat` channel is **Dirichlet**: the solver hard-sets `p` at the source
+coords each step (`n < nTic`) and clamps them to 0 afterwards — dense source regions
+therefore act as rigid screens. The additive channel instead **superimposes**
+(`p += trace`) so distributed secondary sources (e.g. scatterer injection) stay
+acoustically transparent, and is never zero-clamped once its traces run out.
+- Scalars: int32 `ncoords_add` (absent/0 → channel disabled, output byte-identical),
+  `nTic_add` (default `nTic`).
+- `icc_add.dat` (`ncoords_add*2`, `[all i ; all j]`, same convention as `icc.dat`).
+  Coords must be **unique** (one add per cell per step).
+- `icmat_add.dat`: `nsims*ncoords_add*nTic_add`, sim-major like `icmat.dat`.
+- Injection order per step: hard set / zero clamp, then additive.
+- Writer: `sim.write_fullwave_sim(..., add_coords=pts, nTic_add=n)` writes the coords
+  and scalars; the caller writes `icmat_add.dat` via `io_dat.write_icmat`.
+- Gate: `tests/test_2d_additive_source.sh` (superposition, 2D Green's function,
+  truncation byte-identity, batch==solo).
+
 ## Outputs — genout, float32, frame-major
 `nframes = (nT-1)//modT`; a frame is written every `modT` steps.
 - **2D (batched):** device-buffered, layout `[frame][sim][pts]`, written per sim (fresh
