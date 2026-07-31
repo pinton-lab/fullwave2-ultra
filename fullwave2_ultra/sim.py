@@ -28,7 +28,8 @@ def _mround(x):
 
 
 def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
-                       *, nbdy=40, M=8, genout_mod=None):
+                       *, nbdy=40, M=8, genout_mod=None,
+                       add_coords=None, nTic_add=None):
     """Write the solver-used .dat for one 2D run dir (PML files omitted).
 
     Parameters
@@ -42,6 +43,15 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
     nTic, modT : int        source length, genout decimation.
     nbdy, M : int           absorbing-ring width and FD half-width;
                             mext = nbdy + M is the replicate-pad applied to maps.
+    add_coords : array|None ADDITIVE source coords (n,2+), same interior
+                            convention as incoords. Superimposed on the field
+                            (p += trace) instead of hard-set, so dense source
+                            regions stay acoustically transparent. Coords must
+                            be unique (the kernel adds once per coord per step).
+                            The caller writes the traces separately:
+                            io_dat.write_icmat("icmat_add.dat", blocks) with
+                            per-sim (n, nTic_add) blocks, like icmat.
+    nTic_add : int|None     additive trace length (defaults to nTic in-binary).
 
     Returns a dict of the realized scalars (nXe,nYe,nT,dX,dY,dT,ncoords,...).
     Does NOT write icmat / nsims -- the caller writes the source(s) separately.
@@ -87,8 +97,18 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
         mods = (int(genout_mod),) * 2 if np.isscalar(genout_mod) else tuple(int(x) for x in genout_mod)
         for name, v in zip(("modX", "modY"), mods):
             io_dat.write_int(p(f"{name}.dat"), v)
+    ncoords_add = 0
+    if add_coords is not None:               # opt-in additive source channel
+        addc = np.asarray(add_coords)
+        ncoords_add = addc.shape[0]
+        ac_i = addc[:, 0].astype(np.int64) + mext - 1
+        ac_j = addc[:, 1].astype(np.int64) + mext - 1
+        io_dat.write_coords(p("icc_add.dat"), ac_i, ac_j)
+        io_dat.write_int(p("ncoords_add.dat"), ncoords_add)
+        if nTic_add is not None:
+            io_dat.write_int(p("nTic_add.dat"), int(nTic_add))
     return dict(nXe=nXe, nYe=nYe, nT=nT, dX=dX, dY=dY, dT=dT,
-                ncoords=ncoords, ncoordsout=ncoordsout)
+                ncoords=ncoords, ncoordsout=ncoordsout, ncoords_add=ncoords_add)
 
 
 def _sponge_nd(shape, nbdy):
