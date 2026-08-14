@@ -77,8 +77,29 @@ found=$(printf '%s\n' "$files" | grep -E '\.(h|hpp|cuh)$' || true)
 #     (maintainer decision 2026-07): none of the private-side modules, the
 #     validation/optimizer scripts, their tests, or any manuscript material may
 #     be (re-)added until the corresponding papers post.
-found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/(absorb|diff|stretch)_[^/]*|tests/test_(diff|adjoint|stretch|attenuation|fatt)[^/]*|tests/test_batch_eq_solo_fatt\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
+#     NOTE: validation/ is embargoed WHOLESALE, not by filename. The earlier
+#     enumeration (absorb_*/diff_*/stretch_*) was a snapshot of the files that
+#     existed when it was written, so every new research script fell straight
+#     through it -- symbol_verify.py and nonlinearity_fubini.py both did. No
+#     validation/ file has ever been published; keep it that way by default.
+found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/|tests/test_(diff|adjoint|stretch|attenuation|fatt|symbol|nonlinearity)[^/]*|tests/test_batch_eq_solo_fatt\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
 [ -n "$found" ] && say "embargoed source ($scope):"$'\n'"$found"
+
+# 13. CONTENT tripwire for embargoed dependencies: any file that imports the
+#     embargoed modules, or anything out of validation/, is itself embargoed
+#     regardless of what it is called. Name-based rules cannot keep up with new
+#     research files; this catches them by what they actually depend on.
+self="scripts/check_no_private.sh"      # this file NAMES the patterns; never scan it
+while IFS= read -r f; do
+  [ -n "$f" ] && [ -f "$f" ] || continue
+  [ "$f" = "$self" ] && continue
+  case "$f" in
+    *.py|*.sh|*.md)
+      if grep -Eq '(from|import)[[:space:]]+(fullwave2_ultra\.)?(diff|adjoint|boundaries|attenuation|stencil)\b|fullwave2_ultra[[:space:]]+import[[:space:]]+[^#]*\b(diff|adjoint|boundaries|attenuation|stencil)\b|["'"'"']validation["'"'"']|/validation/|validation/[a-z_]+\.py' "$f" 2>/dev/null; then
+        say "embargoed dependency in content ($scope): $f"
+      fi ;;
+  esac
+done <<< "$files"
 
 # 12. docs/README content leaking the embargoed feature CONTRACTS (a doc copied
 #     from the private tree carries the USE_STRETCH/stretch.dat and
