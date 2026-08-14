@@ -26,6 +26,31 @@ Files: `c, rho, K, beta, Aexp` (`Aexp` = the per-cell absorption term). PML arra
 Aexp kernels (a missing PML file only warns). `Aexp` must be present and ≤ 1 (it
 attenuates -- `aexp <= 1`).
 
+### `beta` — nonlinearity, sign convention
+
+`beta` is the **textbook coefficient of nonlinearity**, entered directly:
+
+```
+beta = 1 + B/(2A)          # water ~3.5, liver ~4.8
+```
+
+Tabulated values are usually quoted as `B/A`, so convert first — do **not** put
+`B/A` into the map. Set `beta = 0` for a linear run (the overwhelmingly common
+case; the shipped fixtures all do).
+
+With this convention the compressional half-cycle propagates faster than `c` and
+the dilatational half-cycle slower, by `± beta·p/K` — i.e. a finite-amplitude wave
+steepens on its leading edge, and shocks form on compression.
+
+> **Changed 2026-08.** Binaries built before this date evaluated the nonlinear
+> term with an inverted sign, realising an effective coefficient of `-beta`:
+> harmonic *magnitudes* were correct (they scale with `|beta|`), but the waveform
+> asymmetry was reversed — peak-positive vs peak-negative pressure, second-harmonic
+> phase, and the direction of shock formation. **`beta = 0` runs are entirely
+> unaffected** (the two forms are bit-identical there), so linear users need do
+> nothing. If you previously compensated by supplying a *negated* map, remove that
+> negation. Output from the older binaries reproduces exactly by negating the map.
+
 `io_dat`: 2D `write_map(path, M(nX,nY))` / `read_map(path, nX, nY)`; 3D
 `write_map_3d(path, V(nX,nY,nZ))` / `read_map_3d(path, nX, nY, nZ)`.
 
