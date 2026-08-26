@@ -21,7 +21,7 @@ import numpy as np
 
 from . import io_dat
 from .medium import extendMap, aexp_from_amap, dbmhzcm2aexp
-from .stability import check_cfl, cfl_limit
+from .stability import check_cfl
 
 
 def _mround(x):

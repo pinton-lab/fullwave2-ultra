@@ -7,7 +7,6 @@ is the thing callers most often assume. These tests pin the rule so it cannot
 drift silently away from src/*.cu.
 """
 import numpy as np
-import pytest
 
 from fullwave2_ultra.medium import (MATLUT_MAX_MATERIALS, count_materials,
                                     quantize_for_matlut, aexp_from_amap)
