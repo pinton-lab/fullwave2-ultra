@@ -82,7 +82,7 @@ found=$(printf '%s\n' "$files" | grep -E '\.(h|hpp|cuh)$' || true)
 #     existed when it was written, so every new research script fell straight
 #     through it -- symbol_verify.py and nonlinearity_fubini.py both did. No
 #     validation/ file has ever been published; keep it that way by default.
-found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/|tests/test_(diff|adjoint|stretch|attenuation|fatt|symbol|nonlinearity)[^/]*|tests/test_batch_eq_solo_fatt\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
+found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/|tests/test_(diff|adjoint|stretch|attenuation|splat|fatt|symbol|nonlinearity)[^/]*|tests/test_batch_eq_solo_(splat|fatt)\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
 [ -n "$found" ] && say "embargoed source ($scope):"$'\n'"$found"
 
 # 13. CONTENT tripwire for embargoed dependencies: any file that imports the
@@ -103,12 +103,15 @@ done <<< "$files"
 
 # 12. docs/README content leaking the embargoed feature CONTRACTS (a doc copied
 #     from the private tree carries the USE_STRETCH/stretch.dat and
-#     USE_FATT/fatt_coefs.dat sections; scrub them before publishing)
+#     USE_SPLAT/splat_coefs.dat sections; scrub them before publishing).
+#     Both spellings are matched: the FATT -> SPLAT rename (2026-08-18) keeps the
+#     OLD names accepted for one release, so a doc or script can still carry
+#     USE_FATT/fatt_coefs and leak the same contract.
 while IFS= read -r f; do
   [ -n "$f" ] && [ -f "$f" ] || continue
   case "$f" in
     docs/*|README.md)
-      if grep -Eq 'USE_STRETCH|stretch\.dat|write_stretch_rundir|USE_FATT|fatt_coefs|simulate3d\(|_cpml_profiles' "$f" 2>/dev/null; then
+      if grep -Eq 'USE_STRETCH|stretch\.dat|write_stretch_rundir|USE_SPLAT|splat_coefs|USE_FATT|fatt_coefs|simulate3d\(|_cpml_profiles' "$f" 2>/dev/null; then
         say "embargoed feature contract in docs ($scope): $f"
       fi ;;
   esac
