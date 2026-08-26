@@ -77,17 +77,41 @@ found=$(printf '%s\n' "$files" | grep -E '\.(h|hpp|cuh)$' || true)
 #     (maintainer decision 2026-07): none of the private-side modules, the
 #     validation/optimizer scripts, their tests, or any manuscript material may
 #     be (re-)added until the corresponding papers post.
-found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/(absorb|diff|stretch)_[^/]*|tests/test_(diff|adjoint|stretch|attenuation|fatt)[^/]*|tests/test_batch_eq_solo_fatt\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
+#     NOTE: validation/ is embargoed WHOLESALE, not by filename. The earlier
+#     enumeration (absorb_*/diff_*/stretch_*) was a snapshot of the files that
+#     existed when it was written, so every new research script fell straight
+#     through it -- symbol_verify.py and nonlinearity_fubini.py both did. No
+#     validation/ file has ever been published; keep it that way by default.
+found=$(printf '%s\n' "$files" | grep -E '(^|/)(fullwave2_ultra/(diff|adjoint|boundaries|attenuation)\.py|validation/|tests/test_(diff|adjoint|stretch|attenuation|splat|fatt|symbol|nonlinearity)[^/]*|tests/test_batch_eq_solo_(splat|fatt)\.sh|manuscript/|scripts/gen_adjoint_taps\.py)' || true)
 [ -n "$found" ] && say "embargoed source ($scope):"$'\n'"$found"
+
+# 13. CONTENT tripwire for embargoed dependencies: any file that imports the
+#     embargoed modules, or anything out of validation/, is itself embargoed
+#     regardless of what it is called. Name-based rules cannot keep up with new
+#     research files; this catches them by what they actually depend on.
+self="scripts/check_no_private.sh"      # this file NAMES the patterns; never scan it
+while IFS= read -r f; do
+  [ -n "$f" ] && [ -f "$f" ] || continue
+  [ "$f" = "$self" ] && continue
+  case "$f" in
+    *.py|*.sh|*.md)
+      if grep -Eq '(from|import)[[:space:]]+(fullwave2_ultra\.)?(diff|adjoint|boundaries|attenuation|stencil)\b|fullwave2_ultra[[:space:]]+import[[:space:]]+[^#]*\b(diff|adjoint|boundaries|attenuation|stencil)\b|["'"'"']validation["'"'"']|/validation/|validation/[a-z_]+\.py' "$f" 2>/dev/null; then
+        say "embargoed dependency in content ($scope): $f"
+      fi ;;
+  esac
+done <<< "$files"
 
 # 12. docs/README content leaking the embargoed feature CONTRACTS (a doc copied
 #     from the private tree carries the USE_STRETCH/stretch.dat and
-#     USE_FATT/fatt_coefs.dat sections; scrub them before publishing)
+#     USE_SPLAT/splat_coefs.dat sections; scrub them before publishing).
+#     Both spellings are matched: the FATT -> SPLAT rename (2026-08-18) keeps the
+#     OLD names accepted for one release, so a doc or script can still carry
+#     USE_FATT/fatt_coefs and leak the same contract.
 while IFS= read -r f; do
   [ -n "$f" ] && [ -f "$f" ] || continue
   case "$f" in
     docs/*|README.md)
-      if grep -Eq 'USE_STRETCH|stretch\.dat|write_stretch_rundir|USE_FATT|fatt_coefs|simulate3d\(|_cpml_profiles' "$f" 2>/dev/null; then
+      if grep -Eq 'USE_STRETCH|stretch\.dat|write_stretch_rundir|USE_SPLAT|splat_coefs|USE_FATT|fatt_coefs|simulate3d\(|_cpml_profiles' "$f" 2>/dev/null; then
         say "embargoed feature contract in docs ($scope): $f"
       fi ;;
   esac
