@@ -160,6 +160,85 @@ acoustically transparent, and is never zero-clamped once its traces run out.
 - Gate: `tests/test_2d_additive_source.sh` (superposition, 2D Green's function,
   truncation byte-identity, batch==solo).
 
+## Pressure-release sheet — `icczero.dat` / `ncoordszero.dat` (2D only)
+
+A per-step Dirichlet `p = 0` held at an arbitrary cell list, applied AFTER the
+`icc` source injection. It models a **pressure-release** interface: air's
+impedance is ~3400x below tissue's, so a tissue/air boundary has `|R| -> 1` with
+a pi phase reversal. Imposing that as a boundary condition rather than as a
+material contrast costs no stability margin, which is the point — a gas modelled
+as a *medium* runs into the explicit-scheme limit long before it reaches
+physical air (343 m/s, 1.2 kg/m^3), which diverges outright. A `pzero` sheet
+reaches `|R| = 1` with none of that.
+
+- `icczero.dat` (`ncoordszero*2` int32) uses the same `[all i ; all j]`, 0-based,
+  `+mext-1`-shifted layout as `icc.dat`. Coords need **not** be unique — the
+  kernel assigns rather than accumulates, so a duplicate is idempotent. (Contrast
+  `icc_add`, where duplicates sum and their float order breaks bit determinism.)
+- `ncoordszero` absent or 0 disables the channel, and the output is then
+  byte-identical to a run with no `icczero.dat` at all.
+- **2D only.** The 3D solvers have no such kernel and never read the file;
+  `sim.write_fullwave_sim_3d` raises rather than let the coords be ignored.
+- Writer: `sim.write_fullwave_sim(..., zero_coords=pts)`.
+
+### The two Dirichlet windows
+
+The sheet and the source-cell clamp used to be coupled to the burst: `icczero`
+was held only while `n < nTic`, and the source cells were zeroed only once the
+burst ended. Both are now independent half-open windows:
+
+| files | channel | default when absent |
+|---|---|---|
+| `nzero0.dat`, `nzero1.dat` | `icczero` sheet | `[0, nTic)` |
+| `nszero0.dat`, `nszero1.dat` | source cells | `[nTic, nT)` |
+
+The defaults reproduce the previous behaviour exactly, so a run dir without
+these scalars is byte-identical to one built before they existed. A sheet that
+lasts the whole run — which is what any reflection measurement needs, since the
+echo arrives long after a short burst — is `nzero1 = nT`. Source cells left to
+evolve freely after the burst, matching what the 3D solver does, is
+`nszero0 = nT`; that also stops a returning echo re-reflecting off the source
+line as a second pressure-release surface.
+
+### Thickness: one cell is not a barrier
+
+**A single-cell Dirichlet row does not block an M-tap scheme.** The interior
+stencils have half-width `M`, so they reach straight across a one-cell sheet and
+carry energy past it. Measured transmission past a full-width sheet at `M = 8`
+(`tests/check_pzero.py`):
+
+| sheet thickness (cells) | 1 | 3 | 5 | 9 (`M+1`) | 17 (`2M+1`) |
+|---|---|---|---|---|---|
+| transmitted fraction | 2.0e-1 | 2.9e-2 | 8.1e-3 | 8.6e-5 | **0** |
+
+`2M+1` is the first thickness that decouples the two sides exactly, and is what
+a pressure-release *interface* should use. `|R|` saturates at 3 cells, so a thin
+sheet still reflects correctly — it just also leaks, which is the failure mode
+to watch for because it looks like success. This scales with `M`: an `M = 6`
+build needs 13 cells, not 17.
+
+### Two more things worth knowing
+
+**Span the whole width.** A sheet that stops at the interior edge is a finite
+strip, and the wave diffracts around it — that reads as `|R| > 1` from edge
+arrivals at the receiver and as spurious transmission behind the sheet. Extend
+it across the full extended grid, boundary pad included.
+
+**Sub-wavelength inclusions.** A `pzero` region is a boundary condition, not a
+medium, so a *filled* region of zero-coords is a soft scatterer whose interior
+carries no field. For inclusions comparable to or smaller than a wavelength,
+check the scattering against the analytic soft-cylinder result before trusting
+it, and decide whether filling the region or zeroing only a `2M+1`-thick
+boundary ring is the better model at that size — the thickness table above says
+a ring thinner than that is porous.
+
+**Colocated source and sheet.** The order is inject, then sheet, then source
+clamp, so if a coordinate is in both `icc` and `icczero` the injection there is
+overwritten and that trace has no effect on the field.
+
+Gate: `tests/test_pzero.sh` — `|R|`, pulse inversion, transmission floor,
+disabled-channel byte identity, batch == solo.
+
 ## Outputs — genout, float32, frame-major
 `nframes = (nT-1)//modT`; a frame is written every `modT` steps.
 - **2D (batched):** device-buffered, layout `[frame][sim][pts]`, written per sim (fresh
