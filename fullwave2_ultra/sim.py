@@ -21,6 +21,7 @@ import numpy as np
 
 from . import io_dat
 from .medium import extendMap, aexp_from_amap, dbmhzcm2aexp
+from .stability import check_cfl, cfl_limit
 
 
 def _mround(x):
@@ -29,7 +30,8 @@ def _mround(x):
 
 def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
                        *, nbdy=40, M=8, genout_mod=None,
-                       add_coords=None, nTic_add=None):
+                       add_coords=None, nTic_add=None,
+                       cfl_check="raise"):
     """Write the solver-used .dat for one 2D run dir (PML files omitted).
 
     Parameters
@@ -70,6 +72,9 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
     A_ext = extendMap(maps["amap"], mext)
     K = c ** 2 * rho
     nXe, nYe = c.shape
+    # `cfl` is referenced to c0; stability is set by the FASTEST material, so the
+    # realized ratio is cfl*max(c)/c0. See stability.check_cfl.
+    check_cfl(float(np.max(c)), dT, dX, c0=c0, M=M, dim=2, on_violation=cfl_check)
 
     Aexp = aexp_from_amap(A_ext, c0, omega0, dT, nbdy=nbdy)
 
@@ -127,7 +132,8 @@ def _sponge_nd(shape, nbdy):
 
 def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
                           incoords, outcoords, nTic, modT,
-                          *, dZ=None, nbdy=8, M=8, genout_mod=None):
+                          *, dZ=None, nbdy=8, M=8, genout_mod=None,
+                          cfl_check="raise"):
     """Write the solver-used .dat for one 3D run dir (volumetric analogue).
 
     maps : dict of interior volumes (nX,nY,nZ): cmap, rmap, nmap, amap.
@@ -151,6 +157,10 @@ def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
     A_ext = np.pad(np.asarray(maps["amap"], float), pad, mode="edge")
     K = c ** 2 * rho
     nXe, nYe, nZe = c.shape
+    # No 3D stability limit ships in the public package, so this reports the
+    # realized Courant ratio and warns when it exceeds the requested one -- the
+    # reference-speed trap that NaNs a skull run -- without a threshold compare.
+    check_cfl(float(np.max(c)), dT, dX, c0=c0, M=M, dim=3, on_violation=cfl_check)
 
     Aexp = dbmhzcm2aexp(A_ext, c0, omega0, dT) * _sponge_nd((nXe, nYe, nZe), nbdy)
 

@@ -26,6 +26,36 @@ Files: `c, rho, K, beta, Aexp` (`Aexp` = the per-cell absorption term). PML arra
 Aexp kernels (a missing PML file only warns). `Aexp` must be present and ≤ 1 (it
 attenuates -- `aexp <= 1`).
 
+### Material-LUT eligibility (`USE_MATLUT`) — what actually caps it
+
+The `USE_MATLUT` fast path replaces the fp32 `rho`/`K`/`beta` maps with a u16
+index into an exact fp32 lookup table (in 3D it also frees those maps and the
+int32 zone map from the device, ~5 GB at 8 ppw). It is declined, falling back to
+the general path, when either:
+
+1. the medium holds **more than 65535 distinct `(rho, K, beta)` triples**, or
+2. the largest zone index exceeds 65535, i.e. `round(max(c) - min(c)) + 1 > 65536`.
+
+The key is the exact **float32 bit pattern** of the triple. Two consequences
+that decide how you build a map:
+
+- **`Aexp` is NOT part of the key.** A graded absorbing ring gives almost every
+  boundary cell its own `Aexp`, but that never affects eligibility. The fast
+  path is not unreachable in 3D by construction.
+- **`K = c^2 * rho`, so `c` enters only through `K`**, and the triple count is
+  the number of distinct `(c, rho)` pairs (times distinct `beta`, usually 1
+  since `beta = 0` for linear runs). Continuous `c` and `rho` from a CT is what
+  trips the cap — for a 682x682x596 skull, immediately.
+
+The fix is to quantize, and to quantize the **source scalar the maps derive
+from** rather than each map independently. Quantizing `c` and `rho` separately
+to 256 levels each admits 65536 pairs and still declines; quantizing the single
+porosity/HU field they are both computed from to 1024 levels yields 1024
+triples. `medium.quantize_for_matlut` does this, measures the realized triple
+count exactly, and reports the induced error; `medium.count_materials` gives the
+count on its own. The solver's decline message names which of the two conditions
+fired.
+
 ### `beta` — nonlinearity, sign convention
 
 `beta` is the **textbook coefficient of nonlinearity**, entered directly:
@@ -69,6 +99,30 @@ the solver derives the rest itself.
   `coords[2*ncoords+m]=k`. `io_dat.write_coords_3d(path, i, j, k)` /
   `read_coords_3d(path, ncoords) -> (ncoords, 3)`.
 
+## Source formats — what the solvers can represent
+
+A source can be stated three ways in a staggered `p`/`u` scheme. Two are
+implemented:
+
+| format | files | 2D | 3D | note |
+|---|---|---|---|---|
+| **imposed pressure** (Dirichlet) | `icc` / `icmat` | yes | yes | overwrites `p`; the region acts as a rigid screen |
+| **added pressure** | `icc_add` / `icmat_add` | yes | **no** | superimposes; the region stays transparent |
+| **normal velocity** (piston) | — | no | no | not implemented |
+
+**There is no velocity source.** A pressure source substitutes for a
+normal-velocity boundary condition only where `p = rho*c*u_n`, i.e. a plane wave
+into a locally homogeneous medium. At a curved or focused aperture, or with the
+face on a material contrast, the two differ, and a dipole source has no
+pressure-only representation short of a two-cell hack. Do not fake one by
+rescaling `icmat`.
+
+**The 3D solvers refuse, rather than ignore, an additive source.** They read
+`ncoords_add.dat` optionally and abort with `FATAL: ncoords_add=N but the 3D
+solver has no additive source channel` when it is nonzero. Older 3D binaries
+read the scalar, reported it, and had no kernel behind it, so a 3D deck carrying
+a real additive source ran to completion with those sources silently missing.
+
 ## Sources — `icmat.dat`, float32
 - **2D (batched):** `nsims*ncoords*nTic`, **sim-major** then coord-major then time:
   `value(sim s, coord m, time n)` at `((s*ncoords + m)*nTic + n)`. For `nsims=1` this is
@@ -76,6 +130,18 @@ the solver derives the rest itself.
   `(ncoords, nTic)` arrays (one per sim), written sim-major.
 - **(3D):** `ncoords*nTic`, **coord-major** then time (single sim — the 3D solver has no
   batch axis): `value(coord m, time n)` at `m*nTic + n`.
+
+### Size limits
+
+`ncoords * nTic` is an **element** count, not a byte count, and the solvers
+compute it in 64 bits — a driven-surface source of a few hundred thousand cells
+crosses 2^31 elements at realistic `nTic`, and older binaries wrapped there
+(a host abort, and on the device a wrapped negative index that injected garbage
+instead of the trace). There is no 2^31 cap in the current binaries. What does
+bind is memory: the trace array is `ncoords * nTic * 4` bytes on the host AND on
+the device, so a 487918-cell shell at `nTic = 5856` is 11.4 GB in each place.
+The host allocation is checked and reports the count and the GB; the device
+allocation reports a CUDA OOM.
 
 ## Additive sources — `icc_add.dat` / `icmat_add.dat` (optional, 2D)
 The `icc`/`icmat` channel is **Dirichlet**: the solver hard-sets `p` at the source
@@ -122,6 +188,56 @@ frame-major, C-order, with `nX2 = ceil(nX/modX)` etc.
   `io_dat.read_genout_mod_batch_2d(rundir, nsims, nX, nY, modX, modY)` →
   `(nsims, nframes, nX2, nY2)`; `sim.write_fullwave_sim(..., genout_mod=(mX,mY))` writes
   the scalars.
+
+## Stability — the CFL condition
+
+The solvers use a staggered leapfrog whose dispersion relation is
+
+```
+sin(w*dT/2) = r * Sbar(k*dX, n),        r = c*dT/dX
+```
+
+so `w` is real, and the scheme stable, only while `r*Sbar <= 1` everywhere in
+the Brillouin zone and over every direction `n`. `Sbar` itself depends on `r`,
+so the limit is a root find rather than a division. The worst direction is the
+main diagonal.
+
+| dim | M | `r_max` | `1/sqrt(dim)` (plain-leapfrog folklore) |
+|---|---|---|---|
+| 2 | 8 | **0.5326** | 0.7071 |
+| 2 | 6 | **0.6108** | 0.7071 |
+
+Available as `stability.cfl_limit(M=, dim=)` and `stability.CFL_LIMIT`.
+
+**The optimized taps are LESS stable than a plain second-order leapfrog.**
+Raising phase accuracy raises `|Sbar|` near the zone corner, which is exactly
+what the bound integrates. Never size a time step with `1/sqrt(dim)`.
+
+The 3D limits are not published in this package. Size a 3D time step
+conservatively; `stability.check_cfl` still reports the realized ratio there and
+warns on the reference-speed trap below, it just has no threshold to compare
+against.
+
+### `r` is local; `cfl` is nominal
+
+`r = c*dT/dX` uses the LOCAL sound speed, so the constraint is set by the
+**fastest material in the map**. The deck writers take `cfl` and set
+`dT = dX/c0*cfl`, referencing it to `c0`, so the realized ratio is
+
+```
+r_realized = cfl * max(c) / c0
+```
+
+With `c0 = 1540` and cortical bone at 2900 m/s, a requested `cfl = 0.30`
+realizes **0.565**. Such a run is clean until the wave reaches the bone and then
+goes to NaN across the whole field — nothing about the requested number looks
+wrong, only the realized one does. Both deck writers now check this and warn
+naming both numbers (`cfl_check="warn"`/`"ignore"` to relax; in 2D, where a
+limit is published, exceeding it raises).
+
+Attenuation only damps, so it never loosens the bound, but it does mask a
+marginally unstable configuration for many steps before it grows. Nonlinearity
+(`beta != 0`) eats margin. Keep real headroom rather than sitting on the limit.
 
 ## Solver variants
 The distributed solver binaries come in bit-exact and performance-tuned variants
