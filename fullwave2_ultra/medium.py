@@ -318,3 +318,112 @@ def aexp_from_amap(amap_ext: np.ndarray, c0: float, omega0: float,
         spy[nYe - b] = min(spy[nYe - b], v)
     Aexp = Aexp * np.outer(spx, spy)
     return Aexp
+
+
+# ---------------------------------------------------------------------------
+# material-LUT (USE_MATLUT) eligibility
+# ---------------------------------------------------------------------------
+MATLUT_MAX_MATERIALS = 65535
+"""Distinct ``(rho, K, beta)`` float32 triples the solver's u16 material index
+admits. Past this the LUT path is declined and the general path runs instead
+(correct, but it keeps the fp32 maps resident -- ~5 GB at 8 ppw in 3D)."""
+
+
+def count_materials(rmap, cmap, nmap=None, *, chunk=1 << 22) -> int:
+    """Exact number of distinct ``(rho, K, beta)`` float32 triples in a medium.
+
+    This is the quantity the solver's ``USE_MATLUT`` path caps at
+    :data:`MATLUT_MAX_MATERIALS`. The key is the exact float32 BIT PATTERN of
+    the triple, so this compares bit patterns, not values within a tolerance --
+    two cells that differ in the last mantissa bit are two materials.
+
+    ``Aexp`` is deliberately absent: it is not part of the solver's key, so a
+    graded absorbing ring never affects eligibility.
+
+    Chunked so a 3e8-cell volume does not need a 3e8-element sort.
+    """
+    rho = np.ascontiguousarray(rmap, dtype=np.float32).ravel()
+    c = np.ascontiguousarray(cmap, dtype=np.float32).ravel()
+    K = np.ascontiguousarray(c.astype(np.float64) ** 2 * rho.astype(np.float64),
+                             dtype=np.float32)
+    if nmap is None:
+        beta = np.zeros(1, dtype=np.float32)
+    else:
+        beta = np.ascontiguousarray(nmap, dtype=np.float32).ravel()
+    n = rho.size
+    acc = np.empty(0, dtype=np.void)
+    for lo in range(0, n, chunk):
+        hi = min(lo + chunk, n)
+        b = beta[lo:hi] if beta.size == n else np.broadcast_to(beta, (hi - lo,))
+        trip = np.empty((hi - lo, 3), dtype=np.float32)
+        trip[:, 0] = rho[lo:hi]
+        trip[:, 1] = K[lo:hi]
+        trip[:, 2] = b
+        v = np.ascontiguousarray(trip).view([("", np.float32)] * 3).ravel()
+        acc = np.unique(np.concatenate([acc, np.unique(v)]) if acc.size else np.unique(v))
+    return int(acc.size)
+
+
+def _quantize(a, nlev):
+    """Uniform quantization of ``a`` onto ``nlev`` levels spanning its range.
+
+    Returns float32. A constant field is returned unchanged (one level), so
+    quantization never manufactures materials that were not there.
+    """
+    a = np.asarray(a, dtype=np.float64)
+    lo, hi = float(a.min()), float(a.max())
+    if hi <= lo or nlev <= 1:
+        return np.full(a.shape, np.float32(lo), dtype=np.float32)
+    step = (hi - lo) / (nlev - 1)
+    return (lo + np.rint((a - lo) / step) * step).astype(np.float32)
+
+
+def quantize_for_matlut(cmap, rmap, nmap=None, *, n_levels=None,
+                        max_materials=MATLUT_MAX_MATERIALS, ladder=None):
+    """Quantize a medium so the solver's material LUT path stays eligible.
+
+    The LUT is keyed on the exact float32 ``(rho, K=c^2*rho, beta)`` triple, so
+    the count that matters is the number of distinct ``(c, rho, beta)``
+    combinations -- NOT the number of levels in any one map. Quantizing ``c``
+    and ``rho`` independently to 256 levels each admits 65536 pairs and still
+    declines; if both derive from one scalar field (a CT/porosity model, say),
+    quantizing at 1024 levels yields 1024 triples. This function therefore
+    MEASURES the realized triple count rather than bounding it, and only backs
+    the level count off if the measurement is over the cap.
+
+    Parameters
+    ----------
+    cmap, rmap : arrays        sound speed [m/s], density [kg/m^3].
+    nmap : array, optional     nonlinearity; ``None`` treats it as 0 (linear).
+    n_levels : int, optional   force this level count and do not search.
+    max_materials : int        the solver's cap.
+    ladder : sequence, optional  level counts to try, descending.
+
+    Returns ``(cq, rq, nq, info)``; ``info`` holds the chosen ``n_levels``, the
+    measured ``n_materials``, whether it is ``eligible``, and the induced
+    ``c_max_abs_err`` / ``rho_max_abs_err`` / ``c_step`` / ``rho_step``.
+    """
+    lad = list(ladder) if ladder is not None else \
+        ([int(n_levels)] if n_levels is not None
+         else [4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2])
+    c0 = np.asarray(cmap, dtype=np.float64)
+    r0 = np.asarray(rmap, dtype=np.float64)
+    chosen = None
+    for nl in lad:
+        cq, rq = _quantize(c0, nl), _quantize(r0, nl)
+        nq = None if nmap is None else _quantize(nmap, nl)
+        nmat = count_materials(rq, cq, nq)
+        chosen = (nl, cq, rq, nq, nmat)
+        if nmat <= max_materials:
+            break
+    nl, cq, rq, nq, nmat = chosen
+    span = lambda a: (float(np.max(a)) - float(np.min(a)))
+    info = dict(
+        n_levels=nl, n_materials=nmat, eligible=nmat <= max_materials,
+        max_materials=max_materials,
+        c_step=span(c0) / (nl - 1) if nl > 1 else 0.0,
+        rho_step=span(r0) / (nl - 1) if nl > 1 else 0.0,
+        c_max_abs_err=float(np.max(np.abs(c0 - cq))),
+        rho_max_abs_err=float(np.max(np.abs(r0 - rq))),
+    )
+    return cq, rq, nq, info
