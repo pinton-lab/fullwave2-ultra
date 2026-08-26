@@ -31,7 +31,8 @@ def _mround(x):
 def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
                        *, nbdy=40, M=8, genout_mod=None,
                        add_coords=None, nTic_add=None,
-                       cfl_check="raise"):
+                       cfl_check="raise", zero_coords=None, zero_window=None,
+                       source_zero_window=None):
     """Write the solver-used .dat for one 2D run dir (PML files omitted).
 
     Parameters
@@ -54,6 +55,30 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
                             io_dat.write_icmat("icmat_add.dat", blocks) with
                             per-sim (n, nTic_add) blocks, like icmat.
     nTic_add : int|None     additive trace length (defaults to nTic in-binary).
+    zero_coords : array|None
+                            PRESSURE-RELEASE coords (n, >=2), same 1-based
+                            interior convention as incoords. The solver holds
+                            p = 0 there every step of its window, AFTER the
+                            source injection. That models a tissue/air
+                            interface: |R| = 1 with a pi phase reversal, and no
+                            material contrast, so none of the explicit-scheme
+                            stability cost of a real gas. Coords need NOT be
+                            unique -- assignment is idempotent, unlike the
+                            additive channel's sum. 2D only.
+                            NOTE a one-cell sheet does NOT block an M-tap
+                            scheme; use 2M+1 cells. See docs/io_contract.md.
+    zero_window : (n0, n1)|None
+                            Steps over which zero_coords is held, half-open.
+                            DEFAULT (0, nTic) -- the historical behaviour, in
+                            which the sheet existed only while the source
+                            played. A reflection measurement needs (0, nT):
+                            the echo arrives long after a short burst.
+    source_zero_window : (n0, n1)|None
+                            Steps over which the SOURCE cells are clamped to 0.
+                            DEFAULT (nTic, nT) -- the historical behaviour.
+                            Pass (nT, nT) to leave them evolving freely after
+                            the burst, as the 3D solver does; that also stops a
+                            returning echo re-reflecting off the source line.
 
     Returns a dict of the realized scalars (nXe,nYe,nT,dX,dY,dT,ncoords,...).
     Does NOT write icmat / nsims -- the caller writes the source(s) separately.
@@ -96,6 +121,30 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
                     ("ncoordsout", ncoordsout), ("nTic", nTic), ("modT", modT),
                     ("ncoordszero", 0)]:
         io_dat.write_int(p(f"{name}.dat"), v)
+    if zero_coords is not None and len(zero_coords):   # opt-in pzero sheet
+        zc = np.asarray(zero_coords)
+        if zc.ndim != 2 or zc.shape[1] < 2:
+            raise ValueError(f"zero_coords must be (n, >=2) [i, j]; got {zc.shape}")
+        zi = zc[:, 0].astype(np.int64) + mext - 1
+        zj = zc[:, 1].astype(np.int64) + mext - 1
+        oob = (zi < 0) | (zi >= nXe) | (zj < 0) | (zj >= nYe)
+        if oob.any():
+            raise ValueError(f"{int(oob.sum())} of {zc.shape[0]} zero_coords fall "
+                             f"outside the extended grid ({nXe}, {nYe})")
+        io_dat.write_coords(p("icczero.dat"), zi, zj)
+        io_dat.write_int(p("ncoordszero.dat"), int(zc.shape[0]))
+    # Window scalars are written ONLY when asked for. Absent means the solver's
+    # own defaults -- (0, nTic) and (nTic, nT) -- so a deck that does not use
+    # them is byte-identical to one built before the windows existed.
+    for win, names in ((zero_window, ("nzero0", "nzero1")),
+                       (source_zero_window, ("nszero0", "nszero1"))):
+        if win is None:
+            continue
+        n0, n1 = (int(x) for x in win)
+        if n0 < 0 or n1 < n0:
+            raise ValueError(f"window {names} must satisfy 0 <= n0 <= n1; got {win}")
+        io_dat.write_int(p(f"{names[0]}.dat"), n0)
+        io_dat.write_int(p(f"{names[1]}.dat"), n1)
     for name, v in [("dX", dX), ("dY", dY), ("dT", dT), ("c0", c0)]:
         io_dat.write_float(p(f"{name}.dat"), v)
     if genout_mod is not None:               # opt-in genout_mod field-dump decimation (2D)
@@ -133,7 +182,7 @@ def _sponge_nd(shape, nbdy):
 def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
                           incoords, outcoords, nTic, modT,
                           *, dZ=None, nbdy=8, M=8, genout_mod=None,
-                          cfl_check="raise"):
+                          cfl_check="raise", zero_coords=None):
     """Write the solver-used .dat for one 3D run dir (volumetric analogue).
 
     maps : dict of interior volumes (nX,nY,nZ): cmap, rmap, nmap, amap.
@@ -141,6 +190,12 @@ def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
     Aexp = dbmhzcm2aexp(amap_ext) * 6-face sin^2 sponge. Returns realized scalars.
     Does NOT write icmat / nsims -- the caller writes the source separately.
     """
+    if zero_coords is not None and len(zero_coords):
+        raise NotImplementedError(
+            "the pressure-release (icczero) channel is 2D-only: the 3D solvers "
+            "have no update_p_zero kernel and never read icczero.dat, so the "
+            "coords would be silently ignored. Model the interface as a "
+            "material contrast in 3D, or run 2D.")
     os.makedirs(outdir, exist_ok=True)
     lam = c0 / omega0 * 2 * np.pi
     dX = lam / ppw
