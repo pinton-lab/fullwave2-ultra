@@ -78,6 +78,42 @@ def write_icmat(path: str, blocks) -> None:
         for blk in blocks:
             np.ascontiguousarray(blk, dtype=np.float32).tofile(f)  # (ncoords,nTic) row-major
 
+def write_icmat_time_major(path: str, block, nTic: int, *, chunk: int = 1 << 24) -> None:
+    """Write one (ncoords, nTic) trace block TIME-MAJOR: slice n contiguous.
+
+    This is the **3D** additive layout (``icmat_add.dat``); the 2D channel and
+    every ``icmat.dat`` stay coord-major. The 3D solvers read a whole time
+    slice per step, which lets the optimized solver keep a rolling WINDOW of
+    slices on the device instead of the entire matrix -- at transcranial scale
+    that is ~750 MB of VRAM rather than 8.6 GB. See docs/io_contract.md.
+
+    Written in time-blocks so a block of that size never needs a full
+    transposed copy in RAM: peak extra is one chunk of columns.
+    """
+    b = np.asarray(block)
+    if b.ndim != 2:
+        raise ValueError(f"block must be (ncoords, nTic); got shape {b.shape}")
+    n = int(b.shape[0])
+    if n < 1:
+        raise ValueError("block has no coords")
+    cols = max(1, int(chunk) // n)
+    with open(path, "wb") as f:
+        for c0 in range(0, int(nTic), cols):
+            c1 = min(c0 + cols, int(nTic))
+            np.ascontiguousarray(b[:, c0:c1].T, dtype=np.float32).tofile(f)
+
+
+def read_icmat_time_major(path: str, ncoords: int, nTic: int) -> np.ndarray:
+    """Inverse of :func:`write_icmat_time_major`; returns (ncoords, nTic)."""
+    v = np.fromfile(path, dtype=np.float32)
+    exp = int(ncoords) * int(nTic)
+    if v.size != exp:
+        raise ValueError(f"{path}: {v.size} floats, expected {exp} "
+                         f"(ncoords={ncoords} x nTic={nTic})")
+    return v.reshape(int(nTic), int(ncoords)).T.copy()
+
+
+
 # ---- outputs (genout) ----------------------------------------------------
 def genout_name(sim: int) -> str:
     return "genout.dat" if sim == 0 else f"genout_s{sim}.dat"

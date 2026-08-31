@@ -107,7 +107,7 @@ implemented:
 | format | files | 2D | 3D | note |
 |---|---|---|---|---|
 | **imposed pressure** (Dirichlet) | `icc` / `icmat` | yes | yes | overwrites `p`; the region acts as a rigid screen |
-| **added pressure** | `icc_add` / `icmat_add` | yes | **no** | superimposes; the region stays transparent |
+| **added pressure** | `icc_add` / `icmat_add` | yes | yes | superimposes; the region stays transparent |
 | **normal velocity** (piston) | — | no | no | not implemented |
 
 **There is no velocity source.** A pressure source substitutes for a
@@ -117,11 +117,11 @@ face on a material contrast, the two differ, and a dipole source has no
 pressure-only representation short of a two-cell hack. Do not fake one by
 rescaling `icmat`.
 
-**The 3D solvers refuse, rather than ignore, an additive source.** They read
-`ncoords_add.dat` optionally and abort with `FATAL: ncoords_add=N but the 3D
-solver has no additive source channel` when it is nonzero. Older 3D binaries
-read the scalar, reported it, and had no kernel behind it, so a 3D deck carrying
-a real additive source ran to completion with those sources silently missing.
+**History.** The 3D additive channel is implemented as of the 2026-08-31
+binaries. The generation before refused a nonzero `ncoords_add` with a FATAL;
+the generation before that read the scalar, reported it, and had no kernel
+behind it — a 3D deck carrying a real additive source ran to completion with
+those sources silently missing. If a binary prints the FATAL, update it.
 
 ## Sources — `icmat.dat`, float32
 - **2D (batched):** `nsims*ncoords*nTic`, **sim-major** then coord-major then time:
@@ -130,6 +130,9 @@ a real additive source ran to completion with those sources silently missing.
   `(ncoords, nTic)` arrays (one per sim), written sim-major.
 - **(3D):** `ncoords*nTic`, **coord-major** then time (single sim — the 3D solver has no
   batch axis): `value(coord m, time n)` at `m*nTic + n`.
+- **(3D `icmat_add` is NOT this layout):** it is **time-major** — see "Additive
+  sources" below. A transposed file has exactly the right size, so nothing
+  errors; the injection is just wrong.
 
 ### Size limits
 
@@ -143,7 +146,7 @@ the device, so a 487918-cell shell at `nTic = 5856` is 11.4 GB in each place.
 The host allocation is checked and reports the count and the GB; the device
 allocation reports a CUDA OOM.
 
-## Additive sources — `icc_add.dat` / `icmat_add.dat` (optional, 2D)
+## Additive sources — `icc_add.dat` / `icmat_add.dat` (optional, 2D + 3D)
 The `icc`/`icmat` channel is **Dirichlet**: the solver hard-sets `p` at the source
 coords each step (`n < nTic`) and clamps them to 0 afterwards — dense source regions
 therefore act as rigid screens. The additive channel instead **superimposes**
@@ -155,10 +158,108 @@ acoustically transparent, and is never zero-clamped once its traces run out.
   Coords must be **unique** (one add per cell per step).
 - `icmat_add.dat`: `nsims*ncoords_add*nTic_add`, sim-major like `icmat.dat`.
 - Injection order per step: hard set / zero clamp, then additive.
-- Writer: `sim.write_fullwave_sim(..., add_coords=pts, nTic_add=n)` writes the coords
-  and scalars; the caller writes `icmat_add.dat` via `io_dat.write_icmat`.
-- Gate: `tests/test_2d_additive_source.sh` (superposition, 2D Green's function,
-  truncation byte-identity, batch==solo).
+- Writer: `sim.write_addsrc_rundir(rundir, icc_add, traces, nTic_add=None)` lays
+  down all four files into an existing run dir, in the correct orientation for
+  the run dir's dimension, with uniqueness/bounds/shape validation. (2D only:
+  `sim.write_fullwave_sim(..., add_coords=pts, nTic_add=n)` still writes coords
+  and scalars inline, the caller adding `icmat_add.dat` via `io_dat.write_icmat`.
+  In 3D use `write_addsrc_rundir` — see the layout note below.)
+- Gates: `tests/test_2d_additive_source.sh` (superposition, 2D Green's function,
+  truncation byte-identity, batch==solo); `tests/test_addsrc_3d.sh` (3D
+  transparency vs Dirichlet opacity, superposition, add-after-clamp order
+  byte-exact, windowed==resident, absent-file identity);
+  `tests/test_addsrc_greens.sh` (the pinned source constants below).
+
+### 3D: injection order and `ncoords = 0`
+
+The 3D solvers inject additive sources AFTER the hard-source set (an additive
+coord colocated with a hard coord adds on top of the clamp) and never
+zero-clamp them once `nTic_add` is passed — the same contract as 2D.
+
+`ncoords = 0` with `ncoords_add > 0` is a **valid 3D deck**: the additive
+channel can carry the whole source, `icc.dat`/`icmat.dat` are omitted, and the
+solvers skip the reads and the source launch. This is the intended shape for
+distributed (equivalent-source / hybrid) injection — a dummy hard cell would be
+a rigid point scatterer, not a workaround. `sim.write_fullwave_sim_3d` accepts
+empty `incoords`.
+
+### 3D layout: TIME-MAJOR, and why it differs
+
+`icmat_add.dat` is **time-major in 3D** (slice `n` contiguous:
+`nTic_add * ncoords_add` float32, the `n`-th run of `ncoords_add` floats being
+step `n`) and **coord-major in 2D** (unchanged). `icmat.dat` stays coord-major
+in both. This is the one place in the contract where a layout depends on
+dimension, and it is a capacity decision: the solver reads a whole time slice
+per step, so time-major makes the slice contiguous and lets `bench_3d_opt`
+keep a rolling **window** of slices on the device instead of the whole matrix.
+A distributed-source deck at transcranial scale (hundreds of thousands of
+cells over thousands of steps) is several GB of `icmat_add`; residency would
+spend that much VRAM on data read once, sequentially, and never revisited,
+while a 1 GiB window moves exactly the same total bytes. Coord-major cannot be
+windowed at all: a per-step slice would be strided across the whole file.
+
+- The window budget is compile-time (`FW2_ADDSRC_WIN_BYTES`, default 1 GiB).
+  Any deck whose `icmat_add` fits under it is **fully resident** — one
+  transfer, no per-step cost, behaviourally identical to 2D.
+- `addwin.dat` (optional int) overrides the slices-per-window. It exists for
+  the gates (`test_addsrc_3d.sh` runs the same deck fully resident, at
+  `addwin=3`, and at `addwin=5` — which does not divide `nTic_add`, so the
+  last window is partial — and requires all three genout byte-identical) and
+  for tuning. It changes no arithmetic. Measured at scale (368737 cells x
+  5856 steps, an 8.6 GB `icmat_add`): windowed (1.07 GB device) and forced
+  fully resident produce byte-identical genout, and the windowed run was the
+  faster of the two.
+- `bench_3d` (the base oracle) keeps the whole matrix resident but reads the
+  SAME time-major file, so opt == base covers the layout.
+- **Write it with `sim.write_addsrc_rundir`**, which takes `(N, nTic_add)`
+  traces in BOTH dimensions and owns the on-disk orientation (writing 3D in
+  time-blocks, so a several-GB block never needs a full transposed copy in
+  RAM). Read it back with `io_dat.read_icmat_time_major`. Hand-rolled `tofile`
+  writes get this wrong silently — a transposed source still has the right
+  size.
+
+### Units: the source constants (pinned, 3D)
+
+Adding `s` per step is a mass source `K q = s/dT` over the cell. Two closed
+forms follow, and `tests/test_addsrc_greens.sh` pins both on `bench_3d_opt`:
+
+- **Sheet** (the distributed-injection case). A one-cell sheet radiates, to
+  EACH side, the plane wave `p(t) = s(t - d/c) / (2 CFL)`, `CFL = c dT/dx` in
+  the sheet's material — the drive waveform itself, no derivative. **To inject
+  pressure `P`, drive `s = 2 CFL P`**; that is the grid-independent form of
+  the amplitude note above. At oblique incidence a monopole sheet radiates
+  `P / cos(theta)` (its jump condition is on `u_n`, not `p`), so the drive
+  wants a `cos(theta)` factor; for a sphere centred on the target, converging
+  rays are normal and this is a small correction.
+- **Point.** A single cell radiates the monopole field
+  `p(r, t) = C s'(t - r/c) / r`, `C = dx^3 / (4 pi c^2 dT)` — 1/r, retarded
+  time, and the TIME DERIVATIVE of the drive.
+
+Measured (CFL 0.30, homogeneous, three axes, r = 4..20 cells; sheet both
+sides, d = 4..16): amplitude **+0.5% / +1.9%** of the closed form at 12 / 6
+ppw for the point and **+0.3% / +1.4%** for the sheet, corr >= 0.9998, decay
+exponent -0.9995, on-axis anisotropy 0.00%, +-x symmetry 2e-7. The excess
+scales as ppw^-2 — second-order truncation, not a missing factor. The arrival
+is exactly **half a step early**, `r/c - dT/2`, uniform in `r` and ppw: the
+leapfrog stagger, pinned as such. The derivation is dimension-independent but
+only 3D is measured; the 2D sheet is expected to obey the same `s/(2 CFL)`
+and the 2D line-source field is a different Green's function, neither pinned.
+
+Two things remain the caller's, not the solver's:
+
+- The channel is a **monopole** layer. A closed surface of monopoles radiates
+  inward and outward alike (the sheet result above, each side at `s/(2 CFL)`);
+  a one-way total-field/scattered-field injection needs the dipole term too,
+  which is constructible as adjacent opposite-sign monopole sheets. Until then
+  the outward half leaves through the exterior; for the interior field it is a
+  factor absorbed into `2 CFL`, not a confound.
+- Obliquity weighting of a curved layer, per the `cos(theta)` above.
+
+**A zero trace is a no-op, but only up to signed zero.** Adding exactly `0.0f`
+leaves every value unchanged except a stored `-0.0f`, which becomes `+0.0f`.
+The values still compare equal, so assert transparency on VALUES, not bytes,
+if you build a check of your own (`test_addsrc_3d.sh`'s byte-identity happens
+to hold on its fixture).
 
 ## Pressure-release sheet — `icczero.dat` / `ncoordszero.dat` (2D only)
 
