@@ -165,6 +165,164 @@ def write_fullwave_sim(outdir, c0, omega0, dur, ppw, cfl, maps, xdc, nTic, modT,
                 ncoords=ncoords, ncoordsout=ncoordsout, ncoords_add=ncoords_add)
 
 
+def write_addsrc_rundir(rundir, icc_add, traces, *, nTic_add=None, M=8):
+    """Write the ADDITIVE source channel (``icc_add``/``icmat_add``) into a 2D run dir.
+
+    The additive channel superimposes (``p += trace``) at its coords each step
+    while ``n < nTic_add``, AFTER the hard-set/zero block, and is never
+    zero-clamped afterwards. The point of it is that a dense additive region
+    stays TRANSPARENT to waves crossing it, whereas the imposed (Dirichlet)
+    ``icmat`` channel overwrites the field and so acts as a rigid screen --
+    which is what makes distributed secondary-source injection (scatterer
+    coupling, time reversal) workable. See ``docs/io_contract.md``.
+
+    **2D and 3D.** The run dir decides: a 3D run dir (one with ``nZ.dat``) takes
+    ``(N, >=3)`` ``[i, j, k]`` coords, is single-sim only, and gets its traces
+    written **TIME-MAJOR** -- slice ``n`` contiguous -- because the 3D solvers
+    read a whole slice per step and window it on the device. 2D stays
+    coord-major and byte-identical to before. The caller passes
+    ``(N, nTic_add)`` in both cases; this writer owns the on-disk orientation.
+    See docs/io_contract.md, 'Additive sources'.
+
+    **Amplitude is grid-dependent** (io_contract.md, 'Units'): the trace is added once per
+    time step with implicit weight 1, not ``dT``, so halving ``dT`` at fixed
+    physical duration doubles the injected amplitude. Recalibrate, or pre-scale
+    by ``dT``, when changing ppw or CFL. Imposed-pressure sources have no such
+    dependence.
+
+    Parameters
+    ----------
+    rundir : str
+        An EXISTING run dir (as written by :func:`write_fullwave_sim`).
+    icc_add : (N, >=2) int array
+        0-based ``[i, j]`` coords on the EXTENDED grid -- i.e. already offset by
+        ``mext-1`` the way :func:`write_fullwave_sim` offsets ``incoords``. Must
+        be unique: duplicates still sum correctly under the solver's atomicAdd,
+        but the float add order is then unspecified and run-to-run bit
+        determinism is lost.
+    traces : array or iterable of arrays
+        ``(N, nTic_add)`` for a single sim, or ``(nsims, N, nTic_add)`` / an
+        iterable of ``(N, nTic_add)`` blocks for the batched solver (sim-major,
+        one block per sim, matching ``nsims.dat``). Column 0 is never injected
+        -- the solver's time loop starts at ``n=1``, exactly as for ``icmat``.
+    nTic_add : int, optional
+        Injected length; defaults to the trace length. Must not exceed it.
+    M : int
+        Stencil half-width, used only to warn about coords landing in the frozen
+        outermost ``M+1`` cells (never updated, so a source there is inert).
+
+    Writes ``ncoords_add.dat``, ``nTic_add.dat``, ``icc_add.dat``,
+    ``icmat_add.dat``. Returns a dict of the realized scalars.
+    """
+    import warnings
+
+    rd = str(rundir)
+    if not os.path.isdir(rd):
+        raise FileNotFoundError(f"run dir does not exist: {rd} "
+                                "(write_fullwave_sim first)")
+    is3d = os.path.exists(os.path.join(rd, "nZ.dat"))
+    ndim = 3 if is3d else 2
+
+    ic = np.asarray(icc_add)
+    if ic.ndim != 2 or ic.shape[1] < ndim:
+        raise ValueError(f"icc_add must be (N, >={ndim}) "
+                         f"{'[i, j, k]' if is3d else '[i, j]'} for this "
+                         f"{ndim}D run dir; got shape {ic.shape}")
+    ic = ic[:, :ndim].astype(np.int64)
+    nca = ic.shape[0]
+    if nca == 0:
+        raise ValueError("icc_add is empty; omit the channel instead of "
+                         "writing ncoords_add=0")
+
+    uniq = np.unique(ic, axis=0)
+    if uniq.shape[0] != nca:
+        dup = nca - int(uniq.shape[0])
+        raise ValueError(
+            f"icc_add has {dup} duplicate coordinate(s): the solver's atomicAdd "
+            "sums them correctly but in unspecified order, which breaks "
+            "run-to-run bit determinism. Sum the traces and deduplicate first.")
+
+    # bounds + frozen-shell check against the grid this run dir actually holds
+    def _scalar(name):
+        f = os.path.join(rd, name + ".dat")
+        return io_dat.read_int(f) if os.path.exists(f) else None
+
+    dims = [_scalar(n) for n in (("nX", "nY", "nZ") if is3d else ("nX", "nY"))]
+    if all(d is not None for d in dims):
+        oob = np.zeros(nca, dtype=bool)
+        frozen = np.zeros(nca, dtype=bool)
+        for a, nd_ in enumerate(dims):
+            oob |= (ic[:, a] < 0) | (ic[:, a] >= nd_)
+            frozen |= (ic[:, a] < M + 1) | (ic[:, a] >= nd_ - M - 1)
+        if oob.any():
+            raise ValueError(
+                f"{int(oob.sum())} of {nca} icc_add coords fall outside the "
+                f"extended grid {tuple(dims)}. These are EXTENDED-grid indices; "
+                "interior coords need the +mext-1 offset write_fullwave_sim applies.")
+        if frozen.any():
+            warnings.warn(
+                f"{int(frozen.sum())} of {nca} icc_add coords lie in the frozen "
+                f"outermost M+1={M + 1} cells, which are never updated -- an "
+                "additive source there contributes nothing.", stacklevel=2)
+
+    # normalize traces to a list of (nca, nTicA) blocks, one per sim
+    if isinstance(traces, np.ndarray) and traces.ndim == 3:
+        blocks = [np.asarray(b) for b in traces]
+    elif isinstance(traces, np.ndarray):
+        blocks = [traces]
+    else:
+        blocks = [np.asarray(b) for b in traces]
+    blocks = [np.asarray(b, dtype=np.float64) for b in blocks]
+    if not blocks:
+        raise ValueError("traces is empty")
+    for s, b in enumerate(blocks):
+        if b.ndim != 2:
+            raise ValueError(f"traces block {s} must be (ncoords_add, nTic_add); "
+                             f"got shape {b.shape}")
+        if b.shape != blocks[0].shape:
+            raise ValueError(f"traces block {s} has shape {b.shape} but block 0 "
+                             f"has {blocks[0].shape} (all sims share ncoords_add "
+                             "and nTic_add)")
+        if b.shape[0] != nca:
+            raise ValueError(f"traces block {s} has {b.shape[0]} rows but "
+                             f"icc_add has {nca} coords")
+        if not np.isfinite(b).all():
+            raise ValueError(f"traces block {s} holds non-finite values")
+
+    nsims = _scalar("nsims")
+    nsims = 1 if nsims is None else max(1, nsims)
+    if is3d and (nsims != 1 or len(blocks) != 1):
+        raise ValueError(
+            "the 3D solvers have no batch axis: pass exactly one (N, nTic_add) "
+            f"trace block (got {len(blocks)}, run dir declares nsims={nsims}).")
+    if len(blocks) != nsims:
+        raise ValueError(
+            f"{len(blocks)} trace block(s) but the run dir declares nsims="
+            f"{nsims}. icmat_add.dat is sim-major and must carry one block per "
+            "sim, exactly like icmat.dat.")
+
+    nTicA = int(nTic_add) if nTic_add is not None else blocks[0].shape[1]
+    if nTicA > blocks[0].shape[1]:
+        raise ValueError(f"nTic_add={nTicA} exceeds the trace length "
+                         f"{blocks[0].shape[1]}")
+    nT = _scalar("nT")
+    if nT is not None and nTicA > nT:
+        warnings.warn(f"nTic_add={nTicA} exceeds nT={nT}; the solver stops at "
+                      "nT, so the trace tail is never injected.", stacklevel=2)
+
+    p = lambda f: os.path.join(rd, f)
+    if is3d:
+        io_dat.write_coords_3d(p("icc_add.dat"), ic[:, 0], ic[:, 1], ic[:, 2])
+        # TIME-MAJOR in 3D -- see io_dat.write_icmat_time_major for why.
+        io_dat.write_icmat_time_major(p("icmat_add.dat"), blocks[0], nTicA)
+    else:
+        io_dat.write_coords(p("icc_add.dat"), ic[:, 0], ic[:, 1])
+        io_dat.write_icmat(p("icmat_add.dat"), [b[:, :nTicA] for b in blocks])
+    io_dat.write_int(p("ncoords_add.dat"), nca)
+    io_dat.write_int(p("nTic_add.dat"), nTicA)
+    return dict(ncoords_add=nca, nTic_add=nTicA, nsims=nsims)
+
+
 def _sponge_nd(shape, nbdy):
     """sin^2 absorbing-ring multiplier, ones in the interior, on every face of an
     N-D grid. Generalizes the 2D aexp_from_amap sponge to 3D (and beyond)."""
@@ -219,7 +377,13 @@ def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
 
     Aexp = dbmhzcm2aexp(A_ext, c0, omega0, dT) * _sponge_nd((nXe, nYe, nZe), nbdy)
 
-    inc = np.asarray(incoords); outc = np.asarray(outcoords)
+    # ncoords == 0 is a VALID deck: the additive channel can carry the whole
+    # source (write_addsrc_rundir), and a dummy hard cell would be a rigid
+    # point scatterer, not a workaround. icc.dat/icmat.dat are then omitted and
+    # the solvers skip the reads and the source launch.
+    inc = np.asarray(incoords).reshape(-1, 3) if np.size(incoords) == 0 \
+        else np.asarray(incoords)
+    outc = np.asarray(outcoords)
     ncoords, ncoordsout = inc.shape[0], outc.shape[0]
     ic = inc[:, :3].astype(np.int64) + mext - 1     # +mext then writeCoords(-1)
     oc = outc[:, :3].astype(np.int64) + mext - 1
@@ -228,7 +392,8 @@ def write_fullwave_sim_3d(outdir, c0, omega0, dur, ppw, cfl, maps,
     io_dat.write_map_3d(p("c.dat"), c);   io_dat.write_map_3d(p("rho.dat"), rho)
     io_dat.write_map_3d(p("K.dat"), K);   io_dat.write_map_3d(p("beta.dat"), beta)
     io_dat.write_map_3d(p("Aexp.dat"), Aexp)
-    io_dat.write_coords_3d(p("icc.dat"), ic[:, 0], ic[:, 1], ic[:, 2])
+    if ncoords:
+        io_dat.write_coords_3d(p("icc.dat"), ic[:, 0], ic[:, 1], ic[:, 2])
     io_dat.write_coords_3d(p("outc.dat"), oc[:, 0], oc[:, 1], oc[:, 2])
     for name, v in [("nX", nXe), ("nY", nYe), ("nZ", nZe), ("nT", nT),
                     ("ncoords", ncoords), ("ncoordsout", ncoordsout),
