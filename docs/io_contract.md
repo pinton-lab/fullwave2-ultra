@@ -369,6 +369,52 @@ frame-major, C-order, with `nX2 = ceil(nX/modX)` etc.
   `(nsims, nframes, nX2, nY2)`; `sim.write_fullwave_sim(..., genout_mod=(mX,mY))` writes
   the scalars.
 
+## genout_u / genout_v / genout_w — particle velocity (optional, 2D + 3D)
+The velocity beside the pressure, so a consumer can form the Poynting vector
+`I = <p*v>` and get a **vector** radiation force instead of the plane-wave scalar
+`2*alpha*<p^2>/(rho c)`. Rides the `genout_mod` dump: same decimated grid, same
+`modT` cadence, same frame-major float32 layout, so `io_dat.read_genout_mod*`
+reads these files unchanged — pass the filename, nothing else differs.
+
+Enabled by the **environment variable** `OUTPUT_VELOCITY=1`, not a build flag, so one
+binary does both. With it unset the output is byte-identical to before (the golden
+`genout` gates and `genout_mod` self-consistency gates all still pass). It needs the mod
+scalars: `OUTPUT_VELOCITY=1` without them prints a notice and disables itself.
+- **(3D):** `genout_u.dat`, `genout_v.dat`, `genout_w.dat`, each `nX2*nY2*nZ2`
+  floats/frame, C-order (i,j,k), alongside `genout_mod.dat`.
+- **(2D):** `genout_u.dat`, `genout_w.dat` (no `v`), `nX2*nY2` floats/frame. The batched
+  solvers demux per sim exactly as `genout_mod` does: sim 0 → `genout_u.dat`, sim `s>0`
+  → `genout_u_s<s>.dat`.
+
+Three things about these files are **not** what a reader would assume, and all three are
+silent when got wrong — the product stays finite, smooth and the right order of
+magnitude.
+
+**The 3D axis names are the consumer's, not the solver's.** Internally the arrays are
+`u` along i, `v` along j, `w` along k. These files follow the convention of the
+downstream shear-wave tooling, where `u` is depth (x), **`w` is lateral (y)** and
+**`v` is elevational (z)**. So the solver's `v` is written to `genout_w.dat` and its `w`
+to `genout_v.dat`. Read them by axis, not by letter. **2D has no swap**, because the
+mismatch only exists on the third axis: there `u` is x and `w` is y in both conventions.
+
+**Each component is cell-centred, not staggered.** `u[i]` lives at `i+1/2` in the
+scheme — that is what makes the divergence a centred difference at `(i,j,k)` — but a
+consumer multiplies velocity against pressure elementwise with no interpolation, so the
+writer averages the two faces onto the pressure cell before dumping.
+
+**With the flag on, `genout_mod.dat` carries pressure at `n+1/2`.** The loop advances
+velocity then pressure, so an uncorrected frame would pair `v` at `n+1/2` with `p` at
+`n+1`, and `<p*v>` across that half step is scaled by `cos(omega dT/2)` — about 1.2 % at
+6 ppw and CFL 0.3, but 4.9 % at a 3 ppw band top, i.e. a frequency-dependent bias on the
+force rather than one constant a consumer could divide out. Averaging the two pressure
+slots puts `p` where `v` already is. The receiver `genout.dat` is unaffected and stays at
+`n+1`.
+
+These three properties are gated in the solver's own test suite, which ties each file to
+an axis through `rho dv/dt = -dp/da` using only the dumps, and measures the p-to-v phase
+against the spherical-wave prediction `atan(1/kr)`. A consumer can reproduce both checks
+from the published files alone.
+
 ## Stability — the CFL condition
 
 The solvers use a staggered leapfrog whose dispersion relation is
