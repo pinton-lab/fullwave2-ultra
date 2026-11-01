@@ -12,6 +12,7 @@ including but not limited to:
     bench_2d_batch_b64   bench_3d_opt6
     bench_2d_batch_opt6
     bench_2d_batch_timed
+    bench_2d_batch_splat bench_3d_opt_splat
 
 These executables are licensed under the PolyForm Noncommercial License 1.0.0,
 reproduced in full below.

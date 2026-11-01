@@ -78,6 +78,40 @@ solver builds, same run-dir I/O contract. Outputs are not byte-comparable with t
 default `bench_*` set — pick one set per study. Usage is identical, e.g.
 `solver.run('<rundir>', name='bench_3d_opt_m6')`.
 
+### SPLAT binaries: frequency-dependent power-law attenuation
+
+`bench_2d_batch_splat` (2D batch) and `bench_3d_opt_splat` (3D) apply a power-law
+attenuation `alpha(f) = alpha0 * f^y`, calibrated over a frequency band around the
+center frequency. They take an ordinary run dir plus four files:
+
+| File | Contents |
+| --- | --- |
+| `alpha_coeff.dat` | `alpha0` in dB/(MHz^y cm), float32, one value per cell of the EXTENDED grid (same layout as `c.dat`) |
+| `alpha_power.dat` | the exponent `y`, float32, same layout, `0 <= y <= 1.7` |
+| `f0.dat` | the center frequency in Hz, one float32 |
+| `attenuation_parameters.dat` | a copy of one of the two settings files in `params/` |
+
+`params/attenuation_parameters_centered_v1.dat` calibrates over `f0/sqrt(2)` to
+`sqrt(2)*f0` (recommended); `params/attenuation_parameters_author_v1.dat` over `f0` to
+`2*f0`. Extend the alpha maps the way the writer extends the medium maps:
+`medium.extendMap(map, nbdy + M)` in 2D, an edge pad of `nbdy + M` cells per side in
+3D. Write `amap` as zeros, so the classic `Aexp` attenuation does not add on top.
+
+Run the binary in the run dir:
+
+```bash
+bin/bench_2d_batch_splat --unlimited-materials    # or bin/bench_3d_opt_splat
+```
+
+With `--unlimited-materials` there is no limit on the number of distinct
+`(rho, K, beta)` materials, so speckle media with millions of materials run. The
+number of distinct `(alpha0, y)` pairs, quantized in 0.1 % steps, is limited to 65535.
+Without the flag the binary uses a material table and exits with a `FATAL` message
+when the medium has more than 65535 materials. `solver.run` does not pass the flag
+yet, so call the binary directly (or through fullwave25).
+
+These two binaries were built later than the rest of `bin/` (see `bin/MANIFEST.txt`).
+
 If you instead install the package as a wheel (without this repo's `bin/`), point the
 resolver at a hosted copy — it fetches `<FW2U_BINARY_BASEURL>/<tag>/<name>`:
 ```bash
