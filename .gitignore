@@ -63,6 +63,10 @@ results/
 # 2D fixture inputs (the parent dir is not itself ignored, so the negation applies):
 !examples/tiny_nsims4/
 !examples/tiny_nsims4/*.dat
+
+# the two SPLAT settings files that ship with the SPLAT binaries (56 bytes each)
+!params/
+!params/attenuation_parameters_*_v1.dat
 # ... but NEVER the regenerated solver outputs:
 examples/tiny_nsims4/genout*.dat
 # ... nor the solver-computed coefficient inputs (the binary derives these from c;

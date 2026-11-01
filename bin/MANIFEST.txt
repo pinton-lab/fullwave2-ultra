@@ -65,3 +65,15 @@ runtime: NVIDIA driver >= R525 (>= R545 recommended); see docs/deployment.md
   PTX  : sm_90 
   glibc: floor GLIBC_2.34
   ldd  : libc.so.6 libm.so.6 
+
+# added 2026-11-01T12:37:24Z: SPLAT builds from private main 186e49f, same host, toolchain and flags (STRIP=1)
+== bench_2d_batch_splat  (3.5M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
+== bench_3d_opt_splat  (4.2M) ==
+  SASS : sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 
+  PTX  : sm_90 
+  glibc: floor GLIBC_2.34
+  ldd  : libc.so.6 libm.so.6 
